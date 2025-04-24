@@ -57,22 +57,32 @@ end)
 
 -- Spawn a random wagon
 local function SpawnWagonRandomTown()
-    if isWagonSpawning or currentTownName then
-       
+    -- If there's a current town, make sure to clean up first before proceeding
+    if currentTownName then
+        TriggerClientEvent('wagon_merchant:client:deleteWagon', -1, currentTownName)
+        TriggerClientEvent('wagon_merchant:client:wagonDeparted', -1, currentTownName)
+        -- Wait a moment for cleanup to occur
+        Citizen.Wait(1000)
+        currentTownName = nil
+        currentWagonNetId = nil
+        currentNpcNetId = nil
+        spawningPlayer = nil
+    end
+    
+    -- Skip spawning if we're already in the process
+    if isWagonSpawning then
         return
     end
     
     isWagonSpawning = true
     local randomTown = Config.Towns[math.random(#Config.Towns)]
     if not randomTown then
-        
         isWagonSpawning = false
         return
     end
     
     local players = GetPlayers()
     if #players == 0 then
-        
         isWagonSpawning = false
         return
     end
@@ -97,11 +107,10 @@ local function InitializeWagonCycle()
                 Citizen.Wait(Config.VisitDuration * 60 * 1000) -- e.g., 1 minute
                 print("[WagonMerchant] Wagon departing from " .. currentTownName)
                
-                if spawningPlayer then
-                    TriggerClientEvent('wagon_merchant:client:deleteWagon', spawningPlayer, currentTownName)
-                end
-                
+                -- Notify ALL players to remove the wagon entities, not just the spawning player
+                TriggerClientEvent('wagon_merchant:client:deleteWagon', -1, currentTownName)
                 TriggerClientEvent('wagon_merchant:client:wagonDeparted', -1, currentTownName)
+                
                 currentTownName = nil
                 currentWagonNetId = nil
                 currentNpcNetId = nil
