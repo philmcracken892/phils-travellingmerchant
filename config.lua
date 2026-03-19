@@ -101,7 +101,7 @@ Config.BlipScale = 0.6
 -- Driving behavior
 Config.Speed = 6.0  -- wagon cruising speed
 Config.ArrivalDist = 15.0
-Config.IdleAtStopMs = 180000
+Config.IdleAtStopMs = 30000
 
 -- Time rules
 Config.NightStart = 22   -- 20:00
