@@ -6,7 +6,7 @@ local merchantData = {
     spawned = false
 }
 
--- Store entity IDs when client spawns
+
 RegisterNetEvent('merchant:server:setEntities', function(wagonNetId, driverNetId)
     local src = source
     merchantData.wagonNetId = wagonNetId
@@ -15,9 +15,7 @@ RegisterNetEvent('merchant:server:setEntities', function(wagonNetId, driverNetId
     print(('[Merchant] Spawned by player %d - Wagon: %d, Driver: %d'):format(src, wagonNetId, driverNetId))
 end)
 
--- ========================================
--- SHOP CALLBACKS
--- ========================================
+
 
 local function isNightNow(clientHour)
     local hour = tonumber(clientHour) or 12
