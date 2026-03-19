@@ -1,97 +1,26 @@
 local RSGCore = exports['rsg-core']:GetCoreObject()
 
-
-GlobalState.Merchant = {
-    wagonNetId = false,
-    driverNetId = false,
-    status = 'idle',
-    spawnRequested = false  
+local merchantData = {
+    wagonNetId = nil,
+    driverNetId = nil,
+    spawned = false
 }
 
-local function requestClientSpawn(coords)
-    local data = GlobalState.Merchant or {}
-    
-   
-    if data.spawnRequested then
-        print('[phils-travmerchant] Spawn already requested, skipping duplicate')
-        return
-    end
-    
-    data.status = 'spawning'
-    data.wagonNetId = false
-    data.driverNetId = false
-    data.spawnRequested = true  
-    GlobalState.Merchant = data
-    
-   
-    local players = GetPlayers()
-    if #players > 0 then
-        local targetPlayer = tonumber(players[1])
-        print(string.format('[phils-travmerchant] Requesting spawn from player %d', targetPlayer))
-        TriggerClientEvent('merchant:client:spawnWagon', targetPlayer, { x = coords.x + 0.0, y = coords.y + 0.0, z = coords.z + 0.0 })
-    else
-        
-        data.spawnRequested = false
-        GlobalState.Merchant = data
-    end
-end
-
-AddEventHandler('onResourceStart', function(res)
-    if res ~= GetCurrentResourceName() then return end
-    
-    
-    Wait(1000)
-    local first = Config.Route[1]
-    local coords = first and (first.coords or first) or nil
-    if coords then
-        requestClientSpawn(coords)
-    end
-end)
-
-
-CreateThread(function()
-    while true do
-        Wait(15000)
-        local players = GetPlayers()
-        if #players == 0 then goto continue end
-        
-        local data = GlobalState.Merchant or {}
-        
-       
-        if (not data.wagonNetId or not data.driverNetId or data.status ~= 'alive') and not data.spawnRequested then
-            print('[phils-travmerchant] Wagon missing, requesting respawn')
-            local first = Config.Route[1]
-            local coords = first and (first.coords or first)
-            if coords then
-                requestClientSpawn(coords)
-            end
-        end
-        
-        ::continue::
-    end
-end)
-
-
+-- Store entity IDs when client spawns
 RegisterNetEvent('merchant:server:setEntities', function(wagonNetId, driverNetId)
     local src = source
-    if type(wagonNetId) ~= 'number' or type(driverNetId) ~= 'number' then return end
-    
-    GlobalState.Merchant = {
-        wagonNetId = wagonNetId,
-        driverNetId = driverNetId,
-        status = 'alive',
-        spawnRequested = false  
-    }
-    
-    print(string.format('[phils-travmerchant] Merchant spawned by player %d (wagon:%s driver:%s)', src, wagonNetId, driverNetId))
+    merchantData.wagonNetId = wagonNetId
+    merchantData.driverNetId = driverNetId
+    merchantData.spawned = true
+    print(('[Merchant] Spawned by player %d - Wagon: %d, Driver: %d'):format(src, wagonNetId, driverNetId))
 end)
 
+-- ========================================
+-- SHOP CALLBACKS
+-- ========================================
 
 local function isNightNow(clientHour)
-    local hour = tonumber(clientHour)
-    if not hour or hour < 0 or hour > 23 then
-        hour = tonumber(GlobalState.MerchantHour) or 12
-    end
+    local hour = tonumber(clientHour) or 12
     local startH = Config.NightStart or 20
     local endH = Config.NightEnd or 6
     if startH <= endH then
@@ -101,19 +30,11 @@ local function isNightNow(clientHour)
     end
 end
 
-
-RegisterNetEvent('merchant:server:timeSync', function(hour)
-    hour = tonumber(hour)
-    if hour and hour >= 0 and hour < 24 then
-        GlobalState.MerchantHour = hour
-    end
-end)
-
-
 lib.callback.register('merchant:buyItem', function(src, itemName, count, hour)
     local item = Config.Items[itemName]
     local alcohol = Config.Alcohol and Config.Alcohol[itemName]
     local herb = Config.Herbs and Config.Herbs[itemName]
+    
     if not item and not alcohol and not herb then return false, 'Invalid item' end
 
     local night = isNightNow(hour)
@@ -131,9 +52,7 @@ lib.callback.register('merchant:buyItem', function(src, itemName, count, hour)
 
     local total = price * qty
     local removed = Player.Functions.RemoveMoney(Config.MoneyAccount, total, 'travelling-merchant')
-    if not removed then
-        return false, 'Not enough money'
-    end
+    if not removed then return false, 'Not enough money' end
 
     local added = Player.Functions.AddItem(itemName, qty, false, {})
     if not added then
