@@ -7,6 +7,7 @@ Config.Items = {
     apple = { label = 'Apple', price = 1 },
 	banana = { label = 'banana', price = 2 },
 	stew = { label = 'stew', price = 5 },
+	newspaper = { label = 'newspaper', price = 1 },
 }
 
 -- Herbs (daytime, sold like regular items)
@@ -93,28 +94,46 @@ Config.Weapons = {
 Config.MoneyAccount = 'cash'
 
 
-Config.WagonModel = 'wagontraveller01x'
-Config.DriverModel = 'A_M_M_SDDockWorkers_02'
+Config.WagonModel = 'mp005_p_collectorwagon01'
 Config.BlipColor = 'BLIP_MODIFIER_MP_COLOR_28'  -- Gold color
 Config.BlipSprite = 'blip_ambient_coach'
 Config.BlipScale = 0.6
--- Driving behavior
-Config.Speed = 6.0  -- wagon cruising speed
-Config.ArrivalDist = 15.0
-Config.IdleAtStopMs = 30000
+-- ========================================
+-- ROTATION SETTINGS
+-- ========================================
+Config.RotateTime = 600000      -- Time at each location (ms) - 10 minutes
+Config.TransitionTime = 5000    -- Delay between despawn and respawn (ms) - 5 seconds
+Config.RandomStart = true       -- Start at random location on resource start
 
 -- Time rules
 Config.NightStart = 22   -- 20:00
 Config.NightEnd = 6      -- 06:00
 
 
-Config.Route = {
-    { label = 'Valentine',      coords = vector3(-164.69, 538.94, 114.53) },
-    { label = 'Emerald Ranch',  coords = vector3(1414.40,   264.10,    90.90) },
-    { label = 'Rhodes',         coords = vector3(1238.22, -1261.87,    74.53) },
-    { label = 'Blackwater',     coords = vector3(-891.39, -1359.74,    43.43) },
-    { label = 'Strawberry',     coords = vector3(-1799.67, -449.85,   157.68) },
-    { label = 'Saint Denis',    coords = vector3(2694.71, -1407.44,    46.66) },
-    { label = 'Armadillo',      coords = vector3(-3651.52, -2671.47,  -14.02) },
-    { label = 'Tumbleweed',     coords = vector3(-5467.39, -2946.68,   -1.09) },
+Config.Locations = {
+    {
+        label = 'Valentine',
+        coords = vector3(-160.25, 547.39, 114.8),
+        heading = 90.0
+    },
+    {
+        label = 'Rhodes',
+        coords = vector3(1212.61, -1251.8, 75.06),
+        heading = 45.0
+    },
+    {
+        label = 'Blackwater',
+        coords = vector3(-804.52, -1230.76, 43.4),
+        heading = 270.0
+    },
+    {
+        label = 'Armadillo',
+        coords = vector3(-3672.96, -2520.07, -14.11),
+        heading = 0.0
+    },
+    {
+        label = 'Tumbleweed',
+        coords = vector3(-5590.87, -2927.65, 0.14),
+        heading = 0.0
+    },
 }
