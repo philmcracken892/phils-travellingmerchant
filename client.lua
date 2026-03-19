@@ -1,411 +1,367 @@
 local RSGCore = exports['rsg-core']:GetCoreObject()
-local wagonSpawned = false
-local currentWagon = nil
-local currentNPC = nil
-local currentTown = nil
+
+local wagonEntity, driverEntity
+local targetAdded = false
+local routeIndex = 1
+local isController = false
+local lastTaskTime = 0
 local wagonBlip = nil
-
-local function CreateWagonBlip(coords)
-    if wagonBlip then
-        RemoveBlip(wagonBlip)
-    end
-    
-    wagonBlip = Citizen.InvokeNative(0x554D9D53F696D002, 1664425300, coords.x, coords.y, coords.z)
-    SetBlipSprite(wagonBlip, Config.BlipSprite or 1475879922) -- Wagon sprite
-    SetBlipScale(wagonBlip, Config.BlipScale or 0.2)
-    Citizen.InvokeNative(0x9CB1A1623062F402, wagonBlip, "Merchant Wagon")
-    
-    return wagonBlip
-end
-
-local function RemoveWagonBlip()
-    if wagonBlip then
-        RemoveBlip(wagonBlip)
-        wagonBlip = nil
-    end
-end
-
-if not Config or not Config.Towns or #Config.Towns == 0 or 
-   not Config.MerchantItems or #Config.MerchantItems == 0 or 
-   not Config.VIPMerchantItems or #Config.VIPMerchantItems == 0 or 
-   not Config.WagonModel or not Config.NPCModel then
-    print("[WagonMerchant] Error: Config is missing or incomplete!")
-    return
-end
-
-
-if not lib then
-    print("[WagonMerchant] Error: ox_lib is not loaded!")
-    return
-end
-
-
-local function NotifyPlayer(message, type)
-    if lib and lib.notify then
-        lib.notify({
-            title = 'Merchant Wagon',
-            description = message,
-            type = type or 'info',
-            position = 'top',
-            icon = 'fas fa-horse-head'
-        })
-    else
-        TriggerEvent('chat:addMessage', {
-            color = type == 'error' and {255, 0, 0} or {255, 255, 255},
-            args = {"[Merchant Wagon]", message}
-        })
-    end
-end
-
-
-local function DebugPrint(message)
-    if Config.Debug then
-        print("[WagonMerchant] " .. message)
-    end
-end
-
+local isUIOpen = false
 
 local function LoadModel(model)
-    local modelHash = joaat(model)
-    if not IsModelValid(modelHash) then
-        DebugPrint("Error: Invalid model " .. model)
-        return nil
+    local hash = type(model) == 'string' and GetHashKey(model) or model
+    RequestModel(hash)
+    local timeout = 0
+    while not HasModelLoaded(hash) and timeout < 200 do
+        Wait(50); timeout = timeout + 1
     end
-    RequestModel(modelHash)
-    local timeout = 10000 -- 10 seconds
-    local startTime = GetGameTimer()
-    while not HasModelLoaded(modelHash) do
-        Wait(10)
-        if GetGameTimer() - startTime > timeout then
-            DebugPrint("Error: Failed to load model " .. model)
-            return nil
-        end
-    end
-    return modelHash
+    return HasModelLoaded(hash) and hash or nil
 end
 
-
-local function RemoveWagonAndNPC()
-	RemoveWagonBlip()
-    if DoesEntityExist(currentWagon) then
-        exports.ox_target:removeLocalEntity(currentWagon)
-        DeleteEntity(currentWagon)
-    end
-    if DoesEntityExist(currentNPC) then
-        exports.ox_target:removeLocalEntity(currentNPC)
-        DeleteEntity(currentNPC)
-    end
-    currentWagon = nil
-    currentNPC = nil
-    wagonSpawned = false
-    currentTown = nil
-    DebugPrint("Wagon and NPC have been removed")
+local function getNetEntity(netId)
+    if not netId or netId == false then return 0 end
+    local ent = NetworkGetEntityFromNetworkId(netId)
+    return ent or 0
 end
 
-
-local function OpenMerchantRegularMenu()
-    local options = {}
-    for _, item in ipairs(Config.MerchantItems) do
-        if item and item.label and item.price then 
-            table.insert(options, {
-                title = item.label,
-                description = (item.description or "No description") .. " - $" .. item.price,
-                icon = 'box',
-                onSelect = function()
-                    TriggerServerEvent('wagon_merchant:server:buyItem', item.name, item.price)
-                end,
-                metadata = {
-                    {label = 'Price', value = '$' .. item.price}
-                }
-            })
-        end
-    end
-
+local function ensureWagonBlip()
+    if not wagonEntity or not DoesEntityExist(wagonEntity) then return end
+    if wagonBlip and DoesBlipExist(wagonBlip) then return end
     
-
-    lib.registerContext({
-        id = 'merchant_regular_shop',
-        title = 'Regular Goods',
-        menu = 'merchant_regular_shop',
-        options = options
-    })
-    lib.showContext('merchant_regular_shop')
-end
-
-local function OpenMerchantVIPMenu()
-    local options = {}
-    for _, item in ipairs(Config.VIPMerchantItems) do
-        if item and item.label and item.price then 
-            table.insert(options, {
-                title = item.label,
-                description = (item.description or "No description") .. " - $" .. item.price,
-                icon = 'gem',
-                onSelect = function()
-                    TriggerServerEvent('wagon_merchant:server:buyItem', item.name, item.price)
-                end,
-                metadata = {
-                    {label = 'Price', value = '$' .. item.price},
-                    {label = 'VIP', value = 'Exclusive Item'}
-                }
-            })
+    local blip = Citizen.InvokeNative(0x23F74C2FDA6E7C61, 0x318C617C, wagonEntity)
+    if blip and blip ~= 0 then
+        SetBlipSprite(blip, GetHashKey(Config.BlipSprite), true)
+        SetBlipScale(blip, Config.BlipScale)
+        
+        
+        if Config.BlipColor then
+            Citizen.InvokeNative(0x662D364ABF16DE2F, blip, GetHashKey(Config.BlipColor))
         end
+        
+        Citizen.InvokeNative(0x9CB1A1623062F402, blip, 'Merchant Wagon')
+        wagonBlip = blip
     end
-
-    
-
-    lib.registerContext({
-        id = 'merchant_vip_shop',
-        title = 'VIP Exclusive Items',
-        menu = 'merchant_vip_shop',
-        options = options
-    })
-    lib.showContext('merchant_vip_shop')
 end
 
-local function OpenMerchantMainMenu()
-    local options = {
+local function clearWagonBlip()
+    if wagonBlip and DoesBlipExist(wagonBlip) then
+        RemoveBlip(wagonBlip)
+    end
+    wagonBlip = nil
+end
+
+local function refreshEntities()
+    local data = GlobalState.Merchant or {}
+    local w = getNetEntity(data.wagonNetId)
+    local d = getNetEntity(data.driverNetId)
+    if w ~= 0 and DoesEntityExist(w) then wagonEntity = w end
+    if d ~= 0 and DoesEntityExist(d) then driverEntity = d end
+end
+
+local function withinDist(a, b, dist)
+    return #(vector3(a.x, a.y, a.z) - vector3(b.x, b.y, b.z)) <= dist
+end
+
+local function getStop(i)
+    local p = Config.Route[i]
+    if not p then return nil, nil end
+    if p.coords then
+        return p.coords, (p.label or ('Stop #' .. tostring(i)))
+    else
+        return p, ('Stop #' .. tostring(i))
+    end
+end
+
+local function isNight()
+    local h = GetClockHours() or 12
+    local s = Config.NightStart or 20
+    local e = Config.NightEnd or 6
+    if s <= e then return h >= s and h < e else return h >= s or h < e end
+end
+
+-- ===================== NUI FUNCTIONS =====================
+
+local function openMerchantUI()
+    if isUIOpen then return end
+    isUIOpen = true
+    
+    SetNuiFocus(true, true)
+    
+    local Player = RSGCore.Functions.GetPlayerData()
+    local money = 0
+    if Player and Player.money then
+        money = Player.money[Config.MoneyAccount] or 0
+    end
+    
+    SendNUIMessage({
+        action = 'openShop',
+        items = Config.Items,
+        herbs = Config.Herbs,
+        weapons = Config.Weapons,
+        alcohol = Config.Alcohol,
+        isNight = isNight(),
+        money = money
+    })
+end
+
+local function closeMerchantUI()
+    if not isUIOpen then return end
+    isUIOpen = false
+    SetNuiFocus(false, false)
+    SendNUIMessage({ action = 'closeShop' })
+end
+
+-- NUI Callbacks
+RegisterNUICallback('closeUI', function(data, cb)
+    closeMerchantUI()
+    cb('ok')
+end)
+
+RegisterNUICallback('purchase', function(data, cb)
+    local item = data.item
+    local qty = data.quantity or 1
+    local isWeapon = data.isWeapon
+    local hour = GetClockHours()
+    
+    local callbackName = isWeapon and 'merchant:buyWeapon' or 'merchant:buyItem'
+    local success, msg = lib.callback.await(callbackName, false, item, qty, hour)
+    
+    SendNUIMessage({
+        action = 'purchaseResult',
+        success = success,
+        message = msg or (success and 'Purchase successful' or 'Purchase failed')
+    })
+    
+   
+    Wait(100) 
+    local Player = RSGCore.Functions.GetPlayerData()
+    local money = 0
+    if Player and Player.money then
+        money = Player.money[Config.MoneyAccount] or 0
+    end
+    SendNUIMessage({
+        action = 'updateMoney',
+        money = money
+    })
+    
+    cb('ok')
+end)
+
+-- ===================== TARGET =====================
+
+local function addTargetOnce()
+    if targetAdded or not wagonEntity or not DoesEntityExist(wagonEntity) then return end
+
+    exports.ox_target:addLocalEntity(wagonEntity, {
         {
-            title = 'General Store',
-            description = 'Browse regular goods',
-            icon = 'cart-shopping',
+            name = 'merchant_open_shop',
+            icon = 'fa-solid fa-cart-shopping',
+            label = 'Browse Wares',
+            distance = 3.5,
             onSelect = function()
-                OpenMerchantRegularMenu()
+                openMerchantUI()
             end
         }
-    }
+    })
 
-    RSGCore.Functions.TriggerCallback('wagon_merchant:server:checkVIP', function(isVIP)
-        if isVIP then
-            table.insert(options, {
-                title = 'VIP Exclusive Items',
-                description = 'Browse special goods for VIPs',
-                icon = 'crown',
-                onSelect = function()
-                    OpenMerchantVIPMenu()
-                end
-            })
-        end
-
-        lib.registerContext({
-            id = 'merchant_main_menu',
-            title = 'Traveling Merchant',
-            menu = 'merchant_main_menu',
-            options = options
-        })
-        lib.showContext('merchant_main_menu')
-    end)
+    targetAdded = true
 end
 
+-- ===================== WAGON SPAWN =====================
 
-local function ApplyTargetToEntities(wagonEntity, npcEntity)
-    if DoesEntityExist(npcEntity) then
-        exports.ox_target:removeLocalEntity(npcEntity)
-        exports.ox_target:addLocalEntity(npcEntity, {
-            {
-                name = 'merchant_shop_npc',
-                icon = 'fas fa-shopping-cart',
-                label = 'Talk to Merchant',
-                distance = 3.0,
-                onSelect = function()
-                    OpenMerchantMainMenu()
-                end
-            }
-        })
-    end
+RegisterNetEvent('merchant:client:spawnWagon', function(coords)
+    local vec = coords and vector3(coords.x + 0.0, coords.y + 0.0, coords.z + 0.0) or nil
+    if not vec then return end
+    if wagonEntity and DoesEntityExist(wagonEntity) then return end
     
-    if DoesEntityExist(wagonEntity) then
-        exports.ox_target:removeLocalEntity(wagonEntity)
-        exports.ox_target:addLocalEntity(wagonEntity, {
-            {
-                name = 'merchant_shop_wagon',
-                icon = 'fas fa-shopping-cart',
-                label = 'Browse Merchant Goods',
-                distance = 3.0,
-                onSelect = function()
-                    OpenMerchantMainMenu()
-                end
-            }
-        })
+    local data = GlobalState.Merchant or {}
+    if data.wagonNetId and data.wagonNetId ~= false then
+        refreshEntities()
+        if wagonEntity and DoesEntityExist(wagonEntity) then return end
     end
-end
 
-local function SpawnWagonAtTown(town)
-    if wagonSpawned or not town or not town.coords then
-        
-        return
-    end
-    
-    wagonSpawned = true
-    currentTown = town
-    
     local wagonHash = LoadModel(Config.WagonModel)
-    if not wagonHash then
-        wagonSpawned = false
-       
+    local driverHash = LoadModel(Config.DriverModel)
+    if not wagonHash or not driverHash then
+        lib.notify({ title = 'Merchant', description = 'Failed to load models', type = 'error' })
         return
     end
-    
-    currentWagon = CreateVehicle(wagonHash, town.coords.x, town.coords.y, town.coords.z, town.heading, true, false, false, false)
-    if not DoesEntityExist(currentWagon) then
-        wagonSpawned = false
-        SetModelAsNoLongerNeeded(wagonHash)
-        
+
+    RequestCollisionAtCoord(vec.x, vec.y, vec.z)
+    local wagon = CreateVehicle(wagonHash, vec.x, vec.y, vec.z, 0.0, true, false)
+    if not DoesEntityExist(wagon) then return end
+
+    SetVehicleOnGroundProperly(wagon)
+    while not HasCollisionLoadedAroundEntity(wagon) do Wait(50) end
+
+    local driver = CreatePed(driverHash, vec.x, vec.y, vec.z, 0.0, true, true, true)
+    if not DoesEntityExist(driver) then
+        DeleteVehicle(wagon)
         return
     end
-    
-    if NetworkGetEntityIsNetworked(currentWagon) == false then
-        NetworkRegisterEntityAsNetworked(currentWagon)
+
+    SetEntityAsMissionEntity(wagon, true, true)
+    SetEntityAsMissionEntity(driver, true, true)
+    SetVehicleDoorsLocked(wagon, 2)
+    SetVehicleDoorsLockedForAllPlayers(wagon, true)
+    SetPedFleeAttributes(driver, 0, false)
+    SetBlockingOfNonTemporaryEvents(driver, true)
+    SetEntityInvincible(driver, true)
+    SetPedKeepTask(driver, true)
+    Citizen.InvokeNative(0x283978A15512B2FE, driver, true)
+    Citizen.InvokeNative(0xB8B6430EAD2D2437, driver, GetHashKey("COACH_DRIVER"))
+
+    for i = -1, 3 do
+        Citizen.InvokeNative(0x7C65DAC73C35C862, wagon, i, false)
     end
-    Citizen.InvokeNative(0x9587913B9E772D29, currentWagon, true)
-    SetVehicleDoorsLocked(currentWagon, 2)
-    SetEntityAsMissionEntity(currentWagon, true, true)
+
+    SetPedIntoVehicle(driver, wagon, -1)
+    Wait(500)
+    if not IsPedInVehicle(driver, wagon, false) then
+        TaskEnterVehicle(driver, wagon, -1, -1, 2.0, 1, 0)
+        local attempts = 0
+        while not IsPedInVehicle(driver, wagon, false) and attempts < 40 do
+            Wait(100)
+            attempts = attempts + 1
+        end
+        if not IsPedInVehicle(driver, wagon, false) then
+            DeletePed(driver)
+            DeleteVehicle(wagon)
+            return
+        end
+    end
+
+    wagonEntity = wagon
+    driverEntity = driver
+
+    local wagonNetId = NetworkGetNetworkIdFromEntity(wagon)
+    local driverNetId = NetworkGetNetworkIdFromEntity(driver)
+    if type(SetNetworkIdCanMigrate) == 'function' then
+        SetNetworkIdCanMigrate(wagonNetId, true)
+        SetNetworkIdCanMigrate(driverNetId, true)
+    end
+    if type(SetNetworkIdExistsOnAllMachines) == 'function' then
+        SetNetworkIdExistsOnAllMachines(wagonNetId, true)
+        SetNetworkIdExistsOnAllMachines(driverNetId, true)
+    end
+
     SetModelAsNoLongerNeeded(wagonHash)
-    
-    local npcHash = LoadModel(Config.NPCModel)
-    if not npcHash then
-        DeleteEntity(currentWagon)
-        wagonSpawned = false
-       
-        return
+    SetModelAsNoLongerNeeded(driverHash)
+
+    TriggerServerEvent('merchant:server:setEntities', wagonNetId, driverNetId)
+
+    ensureWagonBlip()
+    lib.notify({ title = 'Merchant', description = 'Merchant wagon is on the road.', type = 'inform' })
+end)
+
+-- ===================== CONTROLLER LOGIC =====================
+
+local function tryBecomeController()
+    if not wagonEntity or not DoesEntityExist(wagonEntity) then return end
+    if not driverEntity or not DoesEntityExist(driverEntity) then return end
+    if not NetworkHasControlOfEntity(driverEntity) then
+        NetworkRequestControlOfEntity(driverEntity)
     end
-    
-    currentNPC = CreatePed(npcHash, town.coords.x, town.coords.y, town.coords.z, town.heading, true, false, false, false)
-    if not DoesEntityExist(currentNPC) then
-        DeleteEntity(currentWagon)
-        wagonSpawned = false
-        SetModelAsNoLongerNeeded(npcHash)
-        
-        return
-    end
-    
-    if NetworkGetEntityIsNetworked(currentNPC) == false then
-        NetworkRegisterEntityAsNetworked(currentNPC)
-    end
-    SetEntityAsMissionEntity(currentNPC, true, true)
-    Citizen.InvokeNative(0x283978A15512B2FE, currentNPC, true)
-    SetModelAsNoLongerNeeded(npcHash)
-    
-    SetPedIntoVehicle(currentNPC, currentWagon, -1)
-    SetBlockingOfNonTemporaryEvents(currentNPC, true)
-    
-    Citizen.Wait(500)
-    
-    local wagonNetId = NetworkGetNetworkIdFromEntity(currentWagon)
-    local npcNetId = NetworkGetNetworkIdFromEntity(currentNPC)
-    
-    if wagonNetId ~= 0 and npcNetId ~= 0 then
-        TriggerServerEvent('wagon_merchant:server:broadcastEntityIds', town.name, wagonNetId, npcNetId)
-		CreateWagonBlip(town.coords)
-    else
-        DebugPrint("Failed to get valid network IDs for entities")
-        RemoveWagonAndNPC()
-        return
-    end
-    
-    
+    isController = NetworkHasControlOfEntity(driverEntity)
 end
 
+local function advanceIfArrived()
+    if not wagonEntity or not driverEntity then return end
+    if not DoesEntityExist(wagonEntity) or not DoesEntityExist(driverEntity) then return end
 
-local function RequestWagonStatus()
-    TriggerServerEvent('wagon_merchant:server:requestWagonStatus')
+    local coords, label = getStop(routeIndex)
+    if not coords then
+        routeIndex = 1
+        coords, label = getStop(routeIndex)
+    end
+    if not coords then return end
+
+    local wagonPos = GetEntityCoords(wagonEntity)
+    local arrived = withinDist(wagonPos, coords, Config.ArrivalDist)
+
+    if arrived then
+        if NetworkHasControlOfEntity(driverEntity) then
+            ClearPedTasks(driverEntity)
+            TaskVehicleTempAction(driverEntity, wagonEntity, 1, Config.IdleAtStopMs)
+        end
+        lib.notify({ title = 'Merchant', description = ('Arrived at %s'):format(label or ('stop #' .. tostring(routeIndex))), type = 'success' })
+        Wait(Config.IdleAtStopMs)
+        routeIndex = routeIndex + 1
+        if routeIndex > #Config.Route then routeIndex = 1 end
+        local nextCoords, nextLabel = getStop(routeIndex)
+        lib.notify({ title = 'Merchant', description = ('Departing to %s'):format(nextLabel or ('stop #' .. tostring(routeIndex))), type = 'inform' })
+        coords = nextCoords or coords
+    end
+
+    local now = GetGameTimer()
+    if now - lastTaskTime < 3000 then return end
+    lastTaskTime = now
+
+    local speed = Config.Speed or 6.0
+    TaskVehicleDriveToCoord(driverEntity, wagonEntity, coords.x + 0.0, coords.y + 0.0, coords.z + 0.0, speed, 1.0, GetEntityModel(wagonEntity), 67633207, 1.0, true)
 end
 
+-- ===================== THREADS =====================
 
-Citizen.CreateThread(function()
+CreateThread(function()
     while true do
-        Citizen.Wait(500)
-        if currentWagon and DoesEntityExist(currentWagon) then
-            local ped = PlayerPedId()
-            local pedCoords = GetEntityCoords(ped)
-            local wagonCoords = GetEntityCoords(currentWagon)
-            local distance = #(pedCoords - wagonCoords)
-            
-            if distance < 2.5 and Citizen.InvokeNative(0x84D0BF2B21862059, ped) and 
-               GetVehiclePedIsEntering(ped) == currentWagon then
-                ClearPedTasksImmediately(ped)
-                NotifyPlayer("This wagon is not for passengers!", "error")
+        refreshEntities()
+        if wagonEntity and DoesEntityExist(wagonEntity) then
+            addTargetOnce()
+            ensureWagonBlip()
+        else
+            targetAdded = false
+            clearWagonBlip()
+        end
+        Wait(1000)
+    end
+end)
+
+CreateThread(function()
+    while true do
+        tryBecomeController()
+        advanceIfArrived()
+        Wait(1000)
+    end
+end)
+
+-- Prevent players from boarding or dragging the driver
+CreateThread(function()
+    while true do
+        if wagonEntity and DoesEntityExist(wagonEntity) then
+            for i = -1, 3 do
+                local pedInSeat = GetPedInVehicleSeat(wagonEntity, i)
+                if pedInSeat and pedInSeat ~= 0 and DoesEntityExist(pedInSeat) then
+                    if not driverEntity or pedInSeat ~= driverEntity then
+                        if IsPedAPlayer(pedInSeat) then
+                            TaskLeaveVehicle(pedInSeat, wagonEntity, 16)
+                        end
+                    end
+                end
             end
         end
+        Wait(1000)
     end
 end)
 
-
-RegisterNetEvent('wagon_merchant:client:setEntityTargets')
-AddEventHandler('wagon_merchant:client:setEntityTargets', function(townName, wagonNetId, npcNetId)
-    local maxRetries = 10
-    local retryInterval = 500
-    local attempt = 0
-    
-    local function tryApplyTargets()
-        local wagonEntity = NetworkGetEntityFromNetworkId(wagonNetId)
-        local npcEntity = NetworkGetEntityFromNetworkId(npcNetId)
-        
-        if DoesEntityExist(wagonEntity) and DoesEntityExist(npcEntity) then
-            
-            ApplyTargetToEntities(wagonEntity, npcEntity)
-        elseif attempt < maxRetries then
-            attempt = attempt + 1
-            
-            Citizen.SetTimeout(retryInterval, tryApplyTargets)
-        else
-            
-        end
-    end
-    
-    tryApplyTargets()
-end)
-
-
-AddEventHandler('onResourceStart', function(resourceName)
-    if resourceName == GetCurrentResourceName() then
-        Citizen.Wait(1000)
-        RequestWagonStatus()
+-- Sync world hour to server for time-gated shop
+CreateThread(function()
+    while true do
+        local h = GetClockHours()
+        TriggerServerEvent('merchant:server:timeSync', h)
+        Wait(30000)
     end
 end)
 
-RegisterNetEvent('playerSpawned')
-AddEventHandler('playerSpawned', function()
-    Citizen.Wait(1000)
-    RequestWagonStatus()
-end)
-
-RegisterNetEvent('wagon_merchant:client:spawnWagon')
-AddEventHandler('wagon_merchant:client:spawnWagon', function(town)
-    if not wagonSpawned then
-        SpawnWagonAtTown(town)
+-- Cleanup on resource stop
+AddEventHandler('onResourceStop', function(res)
+    if res ~= GetCurrentResourceName() then return end
+    closeMerchantUI()
+    clearWagonBlip()
+    if wagonEntity and DoesEntityExist(wagonEntity) then
+        DeleteVehicle(wagonEntity)
     end
-end)
-
-RegisterNetEvent('wagon_merchant:client:wagonSpawned')
-AddEventHandler('wagon_merchant:client:wagonSpawned', function(townName)
-    NotifyPlayer("A merchant wagon has arrived in " .. townName .. "!", "info")
-    
-    
-    for _, town in ipairs(Config.Towns) do
-        if town.name == townName then
-            CreateWagonBlip(town.coords)
-            break
-        end
-    end
-end)
-
-
-RegisterNetEvent('wagon_merchant:client:deleteWagon')
-AddEventHandler('wagon_merchant:client:deleteWagon', function(townName)
-    
-    RemoveWagonAndNPC()
-end)
-
-RegisterNetEvent('wagon_merchant:client:wagonDeparted')
-AddEventHandler('wagon_merchant:client:wagonDeparted', function(townName)
-    
-    RemoveWagonAndNPC()
-	RemoveWagonBlip()
-    NotifyPlayer("The merchant wagon has departed from " .. townName .. ".", "info")
-end)
-
-AddEventHandler('onResourceStop', function(resourceName)
-    if resourceName == GetCurrentResourceName() then
-        RemoveWagonAndNPC()
+    if driverEntity and DoesEntityExist(driverEntity) then
+        DeletePed(driverEntity)
     end
 end)

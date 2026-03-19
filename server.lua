@@ -1,207 +1,172 @@
-
-local currentTownName = nil
-local currentWagonNetId = nil
-local currentNpcNetId = nil
-local isWagonSpawning = false
-local wagonSpawnCooldown = 5000 -- 5 seconds
-local spawningPlayer = nil 
 local RSGCore = exports['rsg-core']:GetCoreObject()
 
 
-RegisterServerEvent('wagon_merchant:server:buyItem')
-AddEventHandler('wagon_merchant:server:buyItem', function(itemName, price)
-    local src = source
-    local Player = RSGCore.Functions.GetPlayer(src)
-    
-    if Player then
-        if Player.Functions.GetMoney('cash') >= price then
-            if Player.Functions.RemoveMoney('cash', price, "merchant-purchase") then
-                Player.Functions.AddItem(itemName, 1)
-                TriggerClientEvent('inventory:client:ItemBox', src, RSGCore.Shared.Items[itemName], 'add')
-                print("Player " .. GetPlayerName(src) .. " purchased " .. itemName .. " for $" .. price)
-            else
-                TriggerClientEvent('ox_lib:notify', src, {
-                    title = 'Merchant Wagon',
-                    description = 'Failed to process payment',
-                    type = 'error'
-                })
-            end
-        else
-            TriggerClientEvent('ox_lib:notify', src, {
-                title = 'Merchant Wagon',
-                description = 'You don\'t have enough money!',
-                type = 'error'
-            })
-        end
-    end
-end)
+GlobalState.Merchant = {
+    wagonNetId = false,
+    driverNetId = false,
+    status = 'idle',
+    spawnRequested = false  
+}
 
--- Check VIP status (unchanged)
-RSGCore.Functions.CreateCallback('wagon_merchant:server:checkVIP', function(source, cb)
-    if not Config.VIPJobName then
-        print("[WagonMerchant] Error: Config.VIPJobName is not defined!")
-        cb(false)
-        return
-    end
-    local Player = RSGCore.Functions.GetPlayer(source)
+local function requestClientSpawn(coords)
+    local data = GlobalState.Merchant or {}
     
-    if Player and Player.PlayerData.job and Player.PlayerData.job.name == Config.VIPJobName then
-        print("Player " .. GetPlayerName(source) .. " has VIP job: " .. Player.PlayerData.job.name)
-        cb(true)
-    else
-        print("Player " .. GetPlayerName(source) .. " does not have VIP job. Current job: " .. 
-              (Player and Player.PlayerData.job and Player.PlayerData.job.name or "Unknown"))
-        cb(false)
-    end
-end)
-
--- Spawn a random wagon
-local function SpawnWagonRandomTown()
-    -- If there's a current town, make sure to clean up first before proceeding
-    if currentTownName then
-        TriggerClientEvent('wagon_merchant:client:deleteWagon', -1, currentTownName)
-        TriggerClientEvent('wagon_merchant:client:wagonDeparted', -1, currentTownName)
-        -- Wait a moment for cleanup to occur
-        Citizen.Wait(1000)
-        currentTownName = nil
-        currentWagonNetId = nil
-        currentNpcNetId = nil
-        spawningPlayer = nil
-    end
-    
-    -- Skip spawning if we're already in the process
-    if isWagonSpawning then
-        return
-    end
-    
-    isWagonSpawning = true
-    local randomTown = Config.Towns[math.random(#Config.Towns)]
-    if not randomTown then
-        isWagonSpawning = false
-        return
-    end
-    
-    local players = GetPlayers()
-    if #players == 0 then
-        isWagonSpawning = false
-        return
-    end
-    
-    local randomPlayer = players[math.random(#players)]
-    spawningPlayer = randomPlayer 
    
-    TriggerClientEvent('wagon_merchant:client:spawnWagon', randomPlayer, randomTown)
-    
-    Citizen.SetTimeout(wagonSpawnCooldown, function()
-        isWagonSpawning = false
-    end)
-end
-
-
-local function InitializeWagonCycle()
-    Citizen.CreateThread(function()
-        while true do
-            SpawnWagonRandomTown()
-            
-            if currentTownName then
-                Citizen.Wait(Config.VisitDuration * 60 * 1000) -- e.g., 1 minute
-                print("[WagonMerchant] Wagon departing from " .. currentTownName)
-               
-                -- Notify ALL players to remove the wagon entities, not just the spawning player
-                TriggerClientEvent('wagon_merchant:client:deleteWagon', -1, currentTownName)
-                TriggerClientEvent('wagon_merchant:client:wagonDeparted', -1, currentTownName)
-                
-                currentTownName = nil
-                currentWagonNetId = nil
-                currentNpcNetId = nil
-                spawningPlayer = nil
-            end
-            
-            local remainingInterval = (Config.SpawnInterval - Config.VisitDuration) * 60 * 1000
-            if remainingInterval > 0 then
-                Citizen.Wait(remainingInterval) -- e.g., 1 minute
-            end
-        end
-    end)
-end
-
--- Broadcast entity IDs
-RegisterServerEvent('wagon_merchant:server:broadcastEntityIds')
-AddEventHandler('wagon_merchant:server:broadcastEntityIds', function(townName, wagonNetId, npcNetId)
-    if not townName or not wagonNetId or not npcNetId then
-       
+    if data.spawnRequested then
+        print('[phils-travmerchant] Spawn already requested, skipping duplicate')
         return
     end
     
-    local validTown = false
-    for _, town in ipairs(Config.Towns) do
-        if town.name == townName then
-            validTown = true
-            break
-        end
-    end
+    data.status = 'spawning'
+    data.wagonNetId = false
+    data.driverNetId = false
+    data.spawnRequested = true  
+    GlobalState.Merchant = data
     
-    if not validTown then
-        
-        return
-    end
-    
-    if not currentTownName then
-        currentTownName = townName
-        currentWagonNetId = wagonNetId
-        currentNpcNetId = npcNetId
-        
-        
-        TriggerClientEvent('wagon_merchant:client:setEntityTargets', -1, townName, wagonNetId, npcNetId)
-        TriggerClientEvent('wagon_merchant:client:wagonSpawned', -1, townName)
+   
+    local players = GetPlayers()
+    if #players > 0 then
+        local targetPlayer = tonumber(players[1])
+        print(string.format('[phils-travmerchant] Requesting spawn from player %d', targetPlayer))
+        TriggerClientEvent('merchant:client:spawnWagon', targetPlayer, { x = coords.x + 0.0, y = coords.y + 0.0, z = coords.z + 0.0 })
     else
         
+        data.spawnRequested = false
+        GlobalState.Merchant = data
+    end
+end
+
+AddEventHandler('onResourceStart', function(res)
+    if res ~= GetCurrentResourceName() then return end
+    
+    
+    Wait(1000)
+    local first = Config.Route[1]
+    local coords = first and (first.coords or first) or nil
+    if coords then
+        requestClientSpawn(coords)
     end
 end)
 
 
-RegisterServerEvent('wagon_merchant:server:notifyDeparture')
-AddEventHandler('wagon_merchant:server:notifyDeparture', function(townName)
-    if currentTownName == townName then
-        print("[WagonMerchant] Client-triggered departure from " .. townName)
-        currentTownName = nil
-        currentWagonNetId = nil
-        currentNpcNetId = nil
-        spawningPlayer = nil
-        TriggerClientEvent('wagon_merchant:client:wagonDeparted', -1, townName)
-    end
-end)
-
-
-RegisterServerEvent('wagon_merchant:server:requestWagonStatus')
-AddEventHandler('wagon_merchant:server:requestWagonStatus', function()
-    local src = source
-    if currentTownName and currentWagonNetId and currentNpcNetId then
-        TriggerClientEvent('wagon_merchant:client:setEntityTargets', src, currentTownName, currentWagonNetId, currentNpcNetId)
-    elseif not isWagonSpawning and not currentTownName then
-        SpawnWagonRandomTown()
-    end
-end)
-
-
-AddEventHandler('onResourceStart', function(resourceName)
-    if resourceName == GetCurrentResourceName() then
-        if Config.SpawnInterval < Config.VisitDuration then
-            print("[WagonMerchant] Error: SpawnInterval must be >= VisitDuration")
-            return
-        end
-        Citizen.Wait(1000)
-        InitializeWagonCycle()
-    end
-end)
-
-
-AddEventHandler('onResourceStop', function(resourceName)
-    if resourceName == GetCurrentResourceName() then
-        currentTownName = nil
-        currentWagonNetId = nil
-        currentNpcNetId = nil
-        spawningPlayer = nil
+CreateThread(function()
+    while true do
+        Wait(15000)
+        local players = GetPlayers()
+        if #players == 0 then goto continue end
         
+        local data = GlobalState.Merchant or {}
+        
+       
+        if (not data.wagonNetId or not data.driverNetId or data.status ~= 'alive') and not data.spawnRequested then
+            print('[phils-travmerchant] Wagon missing, requesting respawn')
+            local first = Config.Route[1]
+            local coords = first and (first.coords or first)
+            if coords then
+                requestClientSpawn(coords)
+            end
+        end
+        
+        ::continue::
     end
+end)
+
+
+RegisterNetEvent('merchant:server:setEntities', function(wagonNetId, driverNetId)
+    local src = source
+    if type(wagonNetId) ~= 'number' or type(driverNetId) ~= 'number' then return end
+    
+    GlobalState.Merchant = {
+        wagonNetId = wagonNetId,
+        driverNetId = driverNetId,
+        status = 'alive',
+        spawnRequested = false  
+    }
+    
+    print(string.format('[phils-travmerchant] Merchant spawned by player %d (wagon:%s driver:%s)', src, wagonNetId, driverNetId))
+end)
+
+
+local function isNightNow(clientHour)
+    local hour = tonumber(clientHour)
+    if not hour or hour < 0 or hour > 23 then
+        hour = tonumber(GlobalState.MerchantHour) or 12
+    end
+    local startH = Config.NightStart or 20
+    local endH = Config.NightEnd or 6
+    if startH <= endH then
+        return hour >= startH and hour < endH
+    else
+        return hour >= startH or hour < endH
+    end
+end
+
+
+RegisterNetEvent('merchant:server:timeSync', function(hour)
+    hour = tonumber(hour)
+    if hour and hour >= 0 and hour < 24 then
+        GlobalState.MerchantHour = hour
+    end
+end)
+
+
+lib.callback.register('merchant:buyItem', function(src, itemName, count, hour)
+    local item = Config.Items[itemName]
+    local alcohol = Config.Alcohol and Config.Alcohol[itemName]
+    local herb = Config.Herbs and Config.Herbs[itemName]
+    if not item and not alcohol and not herb then return false, 'Invalid item' end
+
+    local night = isNightNow(hour)
+    if (item or herb) and night then return false, 'This item is sold during the day only' end
+    if alcohol and not night then return false, 'Alcohol is sold at night only' end
+
+    local Player = RSGCore.Functions.GetPlayer(src)
+    if not Player then return false, 'Player not found' end
+
+    local qty = tonumber(count) or 1
+    if qty < 1 then qty = 1 end
+
+    local price = tonumber((item or alcohol or herb).price) or 0
+    if price <= 0 then return false, 'Invalid price' end
+
+    local total = price * qty
+    local removed = Player.Functions.RemoveMoney(Config.MoneyAccount, total, 'travelling-merchant')
+    if not removed then
+        return false, 'Not enough money'
+    end
+
+    local added = Player.Functions.AddItem(itemName, qty, false, {})
+    if not added then
+        Player.Functions.AddMoney(Config.MoneyAccount, total, 'merchant-refund')
+        return false, 'Inventory full'
+    end
+
+    return true, ("Purchased %dx %s for $%d"):format(qty, (item or alcohol or herb).label, total)
+end)
+
+lib.callback.register('merchant:buyWeapon', function(src, weaponName, count, hour)
+    local w = Config.Weapons and Config.Weapons[weaponName]
+    if not w then return false, 'Invalid weapon' end
+
+    if not isNightNow(hour) then return false, 'Weapons are sold at night only' end
+
+    local Player = RSGCore.Functions.GetPlayer(src)
+    if not Player then return false, 'Player not found' end
+
+    local qty = tonumber(count) or 1
+    if qty < 1 then qty = 1 end
+
+    local price = tonumber(w.price) or 200
+    local total = price * qty
+
+    local removed = Player.Functions.RemoveMoney(Config.MoneyAccount, total, 'merchant-weapon')
+    if not removed then return false, 'Not enough money' end
+
+    local added = Player.Functions.AddItem(weaponName, qty, false, {})
+    if not added then
+        Player.Functions.AddMoney(Config.MoneyAccount, total, 'merchant-refund-weapon')
+        return false, 'Inventory full'
+    end
+
+    return true, ("Purchased %dx %s for $%d"):format(qty, (w.label or weaponName), total)
 end)

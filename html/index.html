@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Travelling Merchant</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Rye&family=Cinzel:wght@400;600;700&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="merchant-container" class="hidden">
+        <!-- Decorative corners -->
+        <div class="corner-decor top-left"></div>
+        <div class="corner-decor top-right"></div>
+        <div class="corner-decor bottom-left"></div>
+        <div class="corner-decor bottom-right"></div>
+
+        <!-- Header -->
+        <div class="merchant-header">
+            <div class="header-line left">
+                <i class="fa-solid fa-star"></i>
+                <span class="line"></span>
+            </div>
+            <div class="header-title">
+                <i class="fa-solid fa-wagon-covered header-icon"></i>
+                <h1>Travelling Merchant</h1>
+                <p class="header-subtitle">Fine Goods & Rare Wares</p>
+            </div>
+            <div class="header-line right">
+                <span class="line"></span>
+                <i class="fa-solid fa-star"></i>
+            </div>
+        </div>
+
+        <!-- Player Money Display -->
+        <div class="money-display">
+            <i class="fa-solid fa-coins"></i>
+            <span id="player-money">$0.00</span>
+        </div>
+
+        <!-- Time Indicator -->
+        <div id="time-indicator" class="time-indicator">
+            <i id="time-icon" class="fa-solid fa-sun"></i>
+            <span id="time-text">Daytime</span>
+        </div>
+
+        <!-- Category Tabs -->
+        <div class="category-tabs">
+            <button class="tab-btn active" data-category="items">
+                <i class="fa-solid fa-drumstick-bite"></i>
+                <span>Provisions</span>
+            </button>
+            <button class="tab-btn" data-category="herbs">
+                <i class="fa-solid fa-leaf"></i>
+                <span>Herbs</span>
+            </button>
+            <button class="tab-btn" data-category="weapons">
+                <i class="fa-solid fa-crosshairs"></i>
+                <span>Weapons</span>
+            </button>
+            <button class="tab-btn" data-category="alcohol">
+                <i class="fa-solid fa-whiskey-glass"></i>
+                <span>Spirits</span>
+            </button>
+        </div>
+
+        <!-- Time Restriction Banner -->
+        <div id="time-banner" class="time-banner hidden">
+            <i class="fa-solid fa-clock"></i>
+            <span id="time-banner-text">These wares are only available at night</span>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="search-container">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="search-input" placeholder="Search wares...">
+        </div>
+
+        <!-- Items Container -->
+        <div class="items-wrapper">
+            <div id="items-grid" class="items-grid">
+                <!-- Items populated by JS -->
+            </div>
+        </div>
+
+        <!-- Close Button -->
+        <button id="close-shop" class="close-btn">
+            <i class="fa-solid fa-xmark"></i>
+            <span>Leave Shop</span>
+        </button>
+
+        <!-- Purchase Modal -->
+        <div id="purchase-modal" class="modal hidden">
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div class="modal-title-wrap">
+                        <i id="modal-icon" class="fa-solid fa-box"></i>
+                        <h2 id="modal-item-name">Item Name</h2>
+                    </div>
+                    <button class="modal-close">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                
+                <div class="modal-body">
+                    <div class="price-row">
+                        <span class="price-label">
+                            <i class="fa-solid fa-tag"></i>
+                            Price per unit
+                        </span>
+                        <span id="modal-price" class="price-value">$0</span>
+                    </div>
+
+                    <div class="quantity-section">
+                        <span class="qty-label">Quantity</span>
+                        <div class="quantity-selector">
+                            <button class="qty-btn minus" data-action="decrease">
+                                <i class="fa-solid fa-minus"></i>
+                            </button>
+                            <input type="number" id="quantity-input" value="1" min="1" max="100">
+                            <button class="qty-btn plus" data-action="increase">
+                                <i class="fa-solid fa-plus"></i>
+                            </button>
+                        </div>
+                        <div class="quick-qty">
+                            <button class="quick-btn" data-qty="1">1</button>
+                            <button class="quick-btn" data-qty="5">5</button>
+                            <button class="quick-btn" data-qty="10">10</button>
+                            <button class="quick-btn" data-qty="25">25</button>
+                        </div>
+                    </div>
+
+                    <div class="total-row">
+                        <span class="total-label">
+                            <i class="fa-solid fa-receipt"></i>
+                            Total Cost
+                        </span>
+                        <span id="modal-total" class="total-value">$0</span>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button id="confirm-purchase" class="btn-purchase">
+                        <i class="fa-solid fa-coins"></i>
+                        <span>Purchase</span>
+                    </button>
+                    <button class="btn-cancel">
+                        <i class="fa-solid fa-ban"></i>
+                        <span>Cancel</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notification Container -->
+        <div id="notification-container"></div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
